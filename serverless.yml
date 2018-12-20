@@ -1,0 +1,50 @@
+
+service: hands-on-lambda
+
+provider:
+  name: aws
+  profile: hands-on-lambda
+  region: eu-west-1
+
+package:
+  individually: true
+  exclude:
+    - ./**
+
+functions:
+
+  lambda-untar:
+    runtime: python3.7
+    memorySize: 1024
+    timeout: 120
+    handler: src.untar_handler.untar_s3_file
+    environment:
+      TARGET_FOLDER: staging
+    package:
+      include:
+        - lambda-untar/**
+
+  lambda-transcode:
+    runtime: java8
+    memorySize: 512
+    timeout: 60
+    handler: pl.vachacz.TranscodeLambda
+    artifact: lambda-transcode/build/distributions/lambda-transcode.zip
+    environment:
+      TARGET_FOLDER: output
+    package:
+      include:
+        - lambda-transcode/**
+
+resources:
+  Resources:
+
+    TranscodingDataFolder:
+      Type: AWS::S3::Bucket
+      Properties:
+        BucketName: transcoding-data
+
+    TranscodingQueue:
+      Type: AWS::SQS::Queue
+      Properties:
+        QueueName: s3-transcode-request
