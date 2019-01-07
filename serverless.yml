@@ -3,8 +3,18 @@ service: hands-on-lambda
 
 provider:
   name: aws
-  profile: hands-on-lambda
+  profile: vachacz
   region: eu-west-1
+
+  iamRoleStatements:
+  - Effect: "Allow"
+    Action: "s3:*"
+    Resource: "arn:aws:s3:::transcoding-data/*"
+
+  - Effect: "Allow"
+    Action: "sqs:*"
+    Resource: "arn:aws:sqs:eu-west-1:592294659655:s3-transcode-request"
+
 
 package:
   individually: true
@@ -14,24 +24,44 @@ package:
 functions:
 
   lambda-untar:
+    description:
+      Lambda responsible for untar'ing source ZIP files and storing extracted files in S3 bucket.
     runtime: python3.7
-    memorySize: 1024
-    timeout: 120
+    events:
+      - s3:
+          bucket: transcoding-data
+          event: s3:ObjectCreated:*
+          rules:
+            - prefix: input/
+    memorySize: 1024 # mb
+    timeout: 120 # seconds
     handler: src.untar_handler.untar_s3_file
     environment:
       TARGET_FOLDER: staging
+    tags:
+      category: s3-triggered
     package:
       include:
         - lambda-untar/**
 
   lambda-transcode:
+    description:
+      Lambda responsible for transcoding .gz.xml files and storing output csv file in S3 bucket.
     runtime: java8
-    memorySize: 512
-    timeout: 60
+    events:
+      - s3:
+          bucket: transcoding-data
+          event: s3:ObjectCreated:*
+          rules:
+            - prefix: staging/
+    memorySize: 512 # mb
+    timeout: 60 # seconds
     handler: pl.vachacz.TranscodeLambda
     artifact: lambda-transcode/build/distributions/lambda-transcode.zip
     environment:
       TARGET_FOLDER: output
+    tags:
+      category: sqs-triggered
     package:
       include:
         - lambda-transcode/**
@@ -39,12 +69,24 @@ functions:
 resources:
   Resources:
 
-    TranscodingDataFolder:
-      Type: AWS::S3::Bucket
-      Properties:
-        BucketName: transcoding-data
+#    TranscodingDataFolder:
+#      Type: AWS::S3::Bucket
+#      Properties:
+#        BucketName: transcoding-data
 
     TranscodingQueue:
       Type: AWS::SQS::Queue
       Properties:
         QueueName: s3-transcode-request
+
+    # setting DLQ for the lambda is not supported. it's possible to do it via a plugin only
+    LambdaTranscodeDlq:
+      Type: AWS::SQS::Queue
+      Properties:
+        QueueName: dlq-lambda-transcode
+
+    # setting DLQ for the lambda is not supported. it's possible to do it via a plugin only
+    LambdaUntarDlq:
+      Type: AWS::SQS::Queue
+      Properties:
+        QueueName: dlq-lambda-untar
