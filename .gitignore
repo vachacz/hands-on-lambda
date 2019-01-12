@@ -18,3 +18,9 @@ gradle
 gradlew.bat
 gradlew
 hands-on-lambda
+
+package-lock.json
+node_modules
+lambda-untar/build/
+lambda-transcode/build/
+lambda-transcode/out

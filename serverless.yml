@@ -1,6 +1,9 @@
 
 service: hands-on-lambda
 
+plugins:
+- serverless-plugin-existing-s3
+
 provider:
   name: aws
   profile: vachacz
@@ -9,75 +12,83 @@ provider:
   iamRoleStatements:
   - Effect: "Allow"
     Action: "s3:*"
-    Resource: "arn:aws:s3:::transcoding-data/*"
+    Resource: "arn:aws:s3:::pl.vachacz.transcoding-input/*"
+
+  - Effect: "Allow"
+    Action: "s3:*"
+    Resource: "arn:aws:s3:::pl.vachacz.transcoding-staging/*"
+
+  - Effect: "Allow"
+    Action: "s3:*"
+    Resource: "arn:aws:s3:::pl.vachacz.transcoding-output/*"
 
   - Effect: "Allow"
     Action: "sqs:*"
-    Resource: "arn:aws:sqs:eu-west-1:592294659655:s3-transcode-request"
-
+    Resource: "arn:aws:sqs:::s3-transcode-request"
 
 package:
   individually: true
-  exclude:
-    - ./**
 
 functions:
 
   lambda-untar:
+    name:
+      lambda-untar
     description:
       Lambda responsible for untar'ing source ZIP files and storing extracted files in S3 bucket.
     runtime: python3.7
+    memorySize: 3008 # mb
+    timeout: 600 # seconds
+    handler: untar_handler.untar_s3_file
     events:
-      - s3:
-          bucket: transcoding-data
-          event: s3:ObjectCreated:*
-          rules:
-            - prefix: input/
-    memorySize: 1024 # mb
-    timeout: 120 # seconds
-    handler: src.untar_handler.untar_s3_file
+    - existingS3:
+        bucket: pl.vachacz.transcoding-input
+        events:
+        - s3:ObjectCreated:*
     environment:
-      TARGET_FOLDER: staging
+      STAGING_FOLDER: pl.vachacz.transcoding-staging
     tags:
       category: s3-triggered
     package:
-      include:
-        - lambda-untar/**
+      artifact: lambda-untar/build/distributions/lambda-untar.zip
 
   lambda-transcode:
+    name:
+      lambda-transcode
     description:
       Lambda responsible for transcoding .gz.xml files and storing output csv file in S3 bucket.
     runtime: java8
     events:
-      - s3:
-          bucket: transcoding-data
-          event: s3:ObjectCreated:*
-          rules:
-            - prefix: staging/
+      - sqs:
+          arn:
+            Fn::GetAtt:
+            - TranscodingQueue
+            - Arn
+          batchSize: 5
     memorySize: 512 # mb
     timeout: 60 # seconds
     handler: pl.vachacz.TranscodeLambda
-    artifact: lambda-transcode/build/distributions/lambda-transcode.zip
     environment:
-      TARGET_FOLDER: output
+      OUTPUT_FOLDER: pl.vachacz.transcoding-output
     tags:
       category: sqs-triggered
     package:
-      include:
-        - lambda-transcode/**
+      artifact: lambda-transcode/build/distributions/lambda-transcode.zip
 
 resources:
   Resources:
-
-#    TranscodingDataFolder:
-#      Type: AWS::S3::Bucket
-#      Properties:
-#        BucketName: transcoding-data
 
     TranscodingQueue:
       Type: AWS::SQS::Queue
       Properties:
         QueueName: s3-transcode-request
+        VisibilityTimeout: 60
+
+    ImportQueue:
+      Type: AWS::SQS::Queue
+      Properties:
+        QueueName: s3-import-request
+        VisibilityTimeout: 60
 
     # setting DLQ for the lambda is not supported. it's possible to do it via a plugin only
     LambdaTranscodeDlq:
@@ -90,3 +101,38 @@ resources:
       Type: AWS::SQS::Queue
       Properties:
         QueueName: dlq-lambda-untar
+
+    QueueAccessPolicy:
+      Type: AWS::SQS::QueuePolicy
+      Properties:
+        PolicyDocument:
+          Id: Allow-s3-publish
+          Statement:
+          - Sid: Allow-s3-publish
+            Effect: Allow
+            Principal: "*"
+            Action:
+            - sqs:*
+            Resource: "*"
+        Queues:
+          - !Ref TranscodingQueue
+          - !Ref ImportQueue
+
+    TranscodingInputFolder:
+      Type: AWS::S3::Bucket
+      Properties:
+        BucketName: pl.vachacz.transcoding-input
+
+    TranscodingStagingFolder:
+      Type: AWS::S3::Bucket
+      Properties:
+        BucketName: pl.vachacz.transcoding-staging
+        NotificationConfiguration:
+          QueueConfigurations:
+          - Event: s3:ObjectCreated:*
+            Queue: !GetAtt TranscodingQueue.Arn
+
+    TranscodingOutputFolder:
+      Type: AWS::S3::Bucket
+      Properties:
+        BucketName: pl.vachacz.transcoding-output
