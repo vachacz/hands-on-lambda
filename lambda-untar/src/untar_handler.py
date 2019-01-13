@@ -28,7 +28,7 @@ def untar_s3_file(event, context):
             for tar_resource in tar:
                 if (tar_resource.isfile() and tar_resource.name.endswith('.xml.gz')):
                     inner_file_bytes = tar.extractfile(tar_resource).read()
-                    executor.submit(upload_file_to_s3, inner_file_bytes, os.environ['STAGING_FOLDER'], tar_resource.name)
+                    executor.submit(upload_file_to_s3, inner_file_bytes, os.environ['STAGING_BUCKET'], tar_resource.name)
 
         executor.shutdown(wait = True)
 

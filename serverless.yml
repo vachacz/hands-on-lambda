@@ -41,7 +41,7 @@ functions:
         events:
         - s3:ObjectCreated:*
     environment:
-      STAGING_FOLDER: pl.vachacz.transcoding-staging
+      STAGING_BUCKET: pl.vachacz.transcoding-staging
     tags:
       category: s3-triggered
     package:
@@ -57,12 +57,12 @@ functions:
       - sqs:
           arn:
             Fn::GetAtt: ["TranscodingQueue", "Arn"]
-          batchSize: 5
-    memorySize: 512 # mb
-    timeout: 60 # seconds
+          batchSize: 10
+    memorySize: 1024 # mb
+    timeout: 120 # seconds
     handler: pl.vachacz.TranscodeLambda
     environment:
-      OUTPUT_FOLDER: pl.vachacz.transcoding-output
+      OUTPUT_BUCKET: pl.vachacz.transcoding-output
     tags:
       category: sqs-triggered
     package:
